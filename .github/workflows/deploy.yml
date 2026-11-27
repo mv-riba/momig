@@ -1,0 +1,56 @@
+name: Test & deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Actions are pinned to commit SHAs (a moved tag can't change what runs); Dependabot proposes updates.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One run per branch/PR: a newer push to the same branch cancels the older run,
+# but runs on different branches/PRs no longer cancel each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      # strict: fails if package-lock.json is out of sync with package.json
+      - run: npm ci
+      - run: npm test
+      # blocking from day one (Bebig only reports it)
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          MOMIG_SUPABASE_URL: ${{ vars.MOMIG_SUPABASE_URL }}
+          MOMIG_SUPABASE_ANON_KEY: ${{ vars.MOMIG_SUPABASE_ANON_KEY }}
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    # only one Pages deploy at a time; a deploy already running is allowed to finish
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
