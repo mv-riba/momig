@@ -4,6 +4,7 @@ import { App } from './App';
 import { startSync } from './lib/sync';
 import { initStore } from './lib/store';
 import { indexedDbPersist, memoryPersist } from './lib/idb';
+import { reloadHeld, reloadWhenAllowed } from './lib/reload';
 import './styles.css';
 
 // Refuse to run inside another site's frame (clickjacking). GitHub Pages can't send X-Frame-Options or a
@@ -24,10 +25,15 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') r.update().catch(() => {}); });
     }).catch(() => {});
   });
-  // a new version took over: reload once so the screen shows it (never mid-form: only when hidden or on next open)
+  // a new version took over: reload once so the screen shows it (never mid-form: only when hidden or on next open,
+  // and not while a screen holds it, e.g. she's away in her email app fetching a sign-in code)
   let reloaded = false; const hadController = !!navigator.serviceWorker?.controller;
+  const schedule = () => {
+    if (reloadHeld()) return reloadWhenAllowed(schedule);
+    if (document.visibilityState === 'hidden') location.reload(); else document.addEventListener('visibilitychange', schedule, { once: true });
+  };
   navigator.serviceWorker?.addEventListener('controllerchange', () => {
     if (reloaded || !hadController) return; reloaded = true;
-    if (document.visibilityState === 'hidden') location.reload(); else document.addEventListener('visibilitychange', () => location.reload(), { once: true });
+    schedule();
   });
 }
