@@ -1,26 +1,37 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Field } from '../ui/ui';
 import { Logo } from '../ui/icons';
 import { register, signIn, resetPassword, resetPasswordWithCode, confirmSignup, resendSignupCode, NEEDS_CONFIRMATION, PASSWORD_RULE } from '../lib/store';
 import { syncMode } from '../lib/sync';
 import { Captcha, captchaEnabled } from '../ui/Captcha';
+import { readPendingCode, savePendingCode, clearPendingCode } from '../lib/pendingCode';
+import { holdReload } from '../lib/reload';
 
 type Mode = 'signin' | 'register' | 'reset' | 'confirm';
 
 export function AuthScreen({ notice }: { notice?: string | null }) {
-  const [mode, setMode] = useState<Mode>('signin');
-  const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [name, setName] = useState('');
-  const [code, setCode] = useState(''); const [codeSent, setCodeSent] = useState(false);
-  const [err, setErr] = useState<string | null>(null); const [msg, setMsg] = useState<string | null>(notice ?? null);
+  // a code step she started (and maybe left to read the email) comes back after a reload or the phone closing the app
+  const [pending] = useState(() => readPendingCode());
+  const [mode, setMode] = useState<Mode>(pending?.mode ?? 'signin');
+  const [email, setEmail] = useState(pending?.email ?? ''); const [pw, setPw] = useState(''); const [name, setName] = useState('');
+  const [code, setCode] = useState(''); const [codeSent, setCodeSent] = useState(pending?.mode === 'reset');
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(notice ?? (pending ? `Enter the code we emailed to ${pending.email}.` : null));
+  const [offerCode, setOfferCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null); const [captchaReset, setCaptchaReset] = useState(0);
   const remoteMode = syncMode() === 'remote';
   const enteringCode = (mode === 'reset' && codeSent) || mode === 'confirm';
   const needCaptcha = remoteMode && captchaEnabled() && !enteringCode; // a code from the email already proves the address
-  const go = (m: Mode) => { setMode(m); setErr(null); setMsg(null); setCode(''); setCodeSent(false); };
+  const go = (m: Mode) => { setMode(m); setErr(null); setMsg(null); setCode(''); setCodeSent(false); setOfferCode(false); if (m === 'signin' || m === 'register') clearPendingCode(); };
+  const toConfirm = (text: { msg?: string; err?: string }) => {
+    setMode('confirm'); setCode(''); setOfferCode(false); setErr(text.err ?? null); setMsg(text.msg ?? null); savePendingCode('confirm', email);
+  };
+  // no reload for a new version while she's away fetching the code
+  useEffect(() => enteringCode ? holdReload() : undefined, [enteringCode]);
 
   const submit = async (e: React.FormEvent) => {
-    e.preventDefault(); setErr(null); setMsg(null);
+    e.preventDefault(); setErr(null); setMsg(null); setOfferCode(false);
     if (needCaptcha && !captchaToken) return setErr('Please complete the security check below.');
     const token = captchaToken ?? undefined;
     setBusy(true);
@@ -29,11 +40,13 @@ export function AuthScreen({ notice }: { notice?: string | null }) {
       else if (mode === 'register') await register(email, pw, name, token);
       else if (mode === 'confirm') await confirmSignup(email, code);
       else if (codeSent) await resetPasswordWithCode(email, code, pw);
-      else { await resetPassword(email, token); setCodeSent(true); setPw(''); setMsg(`If ${email.trim()} has a Momig account, we’ve emailed it a code. It can take a minute, so check spam too.`); }
+      else { await resetPassword(email, token); savePendingCode('reset', email); setCodeSent(true); setPw(''); setMsg(`If ${email.trim()} has a Momig account, we’ve emailed it a code. It can take a minute, so check spam too.`); return; }
+      clearPendingCode(); // signed in
     } catch (e: any) {
       const m: string = e.message || 'Something went wrong';
-      if (m === NEEDS_CONFIRMATION) { setMode('confirm'); setMsg(`We’ve emailed a code to ${email.trim()}. Enter it here to finish creating your account.`); }
-      else if (/email not confirmed/i.test(m)) { setMode('confirm'); setErr('Please confirm your email first: enter the code from the email Momig sent you.'); }
+      if (m === NEEDS_CONFIRMATION) toConfirm({ msg: `We’ve emailed a code to ${email.trim()}. Enter it here to finish creating your account.` });
+      else if (/email not confirmed/i.test(m)) toConfirm({ err: 'Please confirm your email first: enter the code from the email Momig sent you.' });
+      else if (mode === 'signin' && /invalid login credentials/i.test(m)) { setErr('Email or password is incorrect.'); setOfferCode(!!email.trim()); }
       else if (/rate limit/i.test(m)) setErr('Too many emails were sent recently. Please wait a little and try again.');
       else if (/captcha/i.test(m)) setErr('The security check failed or expired. Please try again.');
       else setErr(m);
@@ -74,8 +87,9 @@ export function AuthScreen({ notice }: { notice?: string | null }) {
         {msg && <div className="alert info" role="status">{msg}</div>}
         {needCaptcha && <Captcha action={mode === 'register' ? 'signup' : mode === 'reset' ? 'reset' : 'signin'} resetSignal={captchaReset} onToken={setCaptchaToken} />}
         <button className="btn primary block" disabled={busy || (needCaptcha && !captchaToken)}>{label}</button>
+        {mode === 'signin' && offerCode && remoteMode && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => toConfirm({ msg: `Enter the code from the email Momig sent to ${email.trim()} when you created your account.` })}>Just created your account? Enter the code from the email</button>}
         {mode === 'signin' && remoteMode && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => go('reset')}>Forgot password?</button>}
-        {mode === 'reset' && codeSent && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => { setCodeSent(false); setCode(''); setMsg(null); }}>Didn’t get it? Send a new code</button>}
+        {mode === 'reset' && codeSent && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => { setCodeSent(false); setCode(''); setMsg(null); clearPendingCode(); }}>Didn’t get it? Send a new code</button>}
         {mode === 'confirm' && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => resendSignupCode(email).then(() => setMsg('We’ve sent a new code. It can take a minute, so check spam too.'), (e: any) => setErr(/rate limit/i.test(e?.message) ? 'Please wait a minute before asking for another code.' : 'Couldn’t send a new code. Please try again.'))}>Send a new code</button>}
         {(mode === 'reset' || mode === 'confirm') && <button type="button" className="link small" style={{ alignSelf: 'center' }} onClick={() => go('signin')}>Back to sign in</button>}
         {!remoteMode && <p className="muted tiny center">Local mode: accounts and entries stay in this browser.</p>}
