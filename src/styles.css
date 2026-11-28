@@ -148,8 +148,9 @@ input::placeholder { color: #A8959C; }
 .food-li + .food-li { border-top: 1px solid var(--line); }
 .food-li i { width: 8px; height: 8px; border-radius: 50%; background: #E8C45A; flex: none; }
 .food-li span:nth-child(2) { flex: 1; font-weight: 600; min-width: 0; overflow-wrap: anywhere; } .food-li span:last-child { font-size: .84rem; color: var(--muted); }
-.glasses { display: flex; flex-wrap: wrap; gap: 6px; margin-top: .6rem; }
-.glass { width: 1.9rem; height: 2.4rem; border-radius: 4px 4px 9px 9px; border: 2px solid var(--sky-m); }
+/* Glasses in even rows (up to 10 per row) that shrink to fit, so one glass never sits alone on a second row. */
+.glasses { display: grid; grid-template-columns: repeat(var(--cols, 8), minmax(0, 1.9rem)); gap: 6px; margin-top: .6rem; }
+.glass { width: 100%; aspect-ratio: 19 / 24; border-radius: 4px 4px 9px 9px; border: 2px solid var(--sky-m); }
 .glass.full { border-color: var(--sky-d); background: var(--sky); }
 .quick { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
 .quick .btn { padding: 0 .4rem; font-size: .9rem; }

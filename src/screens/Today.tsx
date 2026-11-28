@@ -10,6 +10,8 @@ import type { Settings } from '../lib/types';
 const RING_C = 2 * Math.PI * 52;
 const fmt = (n: number) => n.toLocaleString('en-GB');
 
+/** Glasses per row: all on one row up to 10, otherwise even rows of at most 10. */
+export function glassCols(n: number) { return n <= 10 ? Math.max(1, n) : Math.ceil(n / Math.ceil(n / 10)); }
 export function addGlass(s: Settings) { return addEntry('water', { at: nowIso(), ml: s.glass_ml }); }
 /** −1: the latest glass logged today. */
 export function removeGlass(d: DayData) {
@@ -29,6 +31,7 @@ export function Today() {
   const items = timeline(d, s);
   const note = s.track_food ? foodNote(s, kcal, hour) : null;
   const glasses = glassesOf(d.water);
+  const glassCount = Math.min(30, Math.max(s.water_goal, glasses));
   const plusGlass = () => { addGlass(s); toast(glasses + 1 === s.water_goal ? 'Water goal reached' : 'Glass logged'); };
   const minusGlass = () => { const id = removeGlass(d); if (id) toast('Glass removed', { label: 'Undo', run: () => restoreEntry('water', id) }); };
 
@@ -96,8 +99,8 @@ export function Today() {
               <button className="btn primary small" onClick={plusGlass}>+ 1 glass</button>
             </div>
           </div>
-          <div className="glasses" aria-label={`${glasses} of ${s.water_goal} glasses`} role="img">
-            {Array.from({ length: Math.min(30, Math.max(s.water_goal, glasses)) }, (_, i) => <span key={i} className={`glass ${i < glasses ? 'full' : ''}`} />)}
+          <div className="glasses" aria-label={`${glasses} of ${s.water_goal} glasses`} role="img" style={{ '--cols': glassCols(glassCount) } as React.CSSProperties}>
+            {Array.from({ length: glassCount }, (_, i) => <span key={i} className={`glass ${i < glasses ? 'full' : ''}`} />)}
           </div>
         </div>
       )}
